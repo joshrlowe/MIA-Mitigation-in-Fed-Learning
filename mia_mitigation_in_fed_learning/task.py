@@ -115,27 +115,6 @@ class WideResNet(nn.Module):
         return self.fc(out)
 
 
-class Net(nn.Module):
-    """Model (simple CNN adapted from 'PyTorch: A 60 Minute Blitz')"""
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(3, 32, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(32, 64, 5)
-        self.fc1 = nn.Linear(64 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 100)
-
-    def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 64 * 5 * 5)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
-
-
 fds = None  # Cache FederatedDataset
 
 pytorch_transforms = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -162,18 +141,31 @@ def load_data(partition_id: int, num_partitions: int):
             partitioners={"train": partitioner},
         )
     partition = fds.load_partition(partition_id)
-    # Divide data on each node: 80% train, 20% test
     partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
-    # Construct dataloaders
     partition_train_test = partition_train_test.with_transform(apply_transforms)
-    trainloader = DataLoader(partition_train_test["train"], batch_size=32, shuffle=True)
-    testloader = DataLoader(partition_train_test["test"], batch_size=32)
+    cuda = torch.cuda.is_available()
+    trainloader = DataLoader(
+        partition_train_test["train"], 
+        batch_size=128, 
+        shuffle=True,
+        num_workers=4 if cuda else 0,
+        pin_memory=cuda,
+        persistent_workers=cuda
+    )
+    testloader = DataLoader(
+        partition_train_test["test"], 
+        batch_size=128,
+        num_workers=4 if cuda else 0,
+        pin_memory=cuda,
+        persistent_workers=cuda
+        )
     return trainloader, testloader
 
 
 def train(net, trainloader, epochs, lr, device):
     """Train the model on the training set."""
-    net.to(device)  # move model to GPU if available
+    print(f"Using GPU: {torch.cuda.get_device_name(device)}" if torch.cuda.is_available() else "Using CPU")
+    net.to(device)
     criterion = torch.nn.CrossEntropyLoss().to(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     net.train()
