@@ -190,7 +190,7 @@ def train(net, trainloader, epochs, lr, device):
     print(f"Using GPU: {torch.cuda.get_device_name(device)}" if torch.cuda.is_available() else "Using CPU")
     net.to(device)
     criterion = torch.nn.CrossEntropyLoss().to(device)
-    optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
     net.train()
     running_loss = 0.0
     for _ in range(epochs):
