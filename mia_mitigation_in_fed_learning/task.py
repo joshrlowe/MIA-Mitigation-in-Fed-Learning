@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import IidPartitioner
 from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, Normalize, ToTensor
+from torchvision.transforms import Compose, Normalize, ToTensor, RandomCrop, RandomHorizontalFlip, RandomErasing
 
 
 class BasicBlock(nn.Module):
@@ -117,12 +117,34 @@ class WideResNet(nn.Module):
 
 fds = None  # Cache FederatedDataset
 
-pytorch_transforms = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+cifar100_mean = (0.5071, 0.4867, 0.4409)
+cifar100_std = (0.2675, 0.2565, 0.2761)
+
+train_transforms = Compose([
+    RandomCrop(32, padding=4),
+    RandomHorizontalFlip(),
+    ToTensor(),
+    Normalize(cifar100_mean, cifar100_std),
+    RandomErasing(p=0.5)
+])
+
+test_transforms = Compose([
+    ToTensor(),
+    Normalize(cifar100_mean, cifar100_std),
+])
 
 
-def apply_transforms(batch):
-    """Apply transforms to the partition from FederatedDataset."""
-    batch["img"] = [pytorch_transforms(img) for img in batch["img"]]
+def apply_transforms_train(batch):
+    """Apply transforms to the partition from FederatedDataset for training."""
+    batch["img"] = [train_transforms(img) for img in batch["img"]]
+    if "fine_label" in batch:
+        batch["label"] = batch["fine_label"]
+
+    return batch
+
+def apply_transforms_test(batch):
+    """Apply transforms to the partition from FederatedDataset for testign."""
+    batch["img"] = [test_transforms(img) for img in batch["img"]]
 
     if "fine_label" in batch:
         batch["label"] = batch["fine_label"]
@@ -142,10 +164,11 @@ def load_data(partition_id: int, num_partitions: int):
         )
     partition = fds.load_partition(partition_id)
     partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
-    partition_train_test = partition_train_test.with_transform(apply_transforms)
+    train_split = partition_train_test["train"].with_transform(apply_transforms_train)
+    test_split = partition_train_test["test"].with_transform(apply_transforms_test)
     cuda = torch.cuda.is_available()
     trainloader = DataLoader(
-        partition_train_test["train"], 
+        train_split, 
         batch_size=128, 
         shuffle=True,
         num_workers=4 if cuda else 0,
@@ -153,7 +176,7 @@ def load_data(partition_id: int, num_partitions: int):
         persistent_workers=cuda
     )
     testloader = DataLoader(
-        partition_train_test["test"], 
+        test_split, 
         batch_size=128,
         num_workers=4 if cuda else 0,
         pin_memory=cuda,
