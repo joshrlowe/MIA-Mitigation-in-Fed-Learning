@@ -4,7 +4,7 @@ import torch
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from mia_mitigation_in_fed_learning.task import Net, load_data
+from mia_mitigation_in_fed_learning.task import WideResNet, load_data
 from mia_mitigation_in_fed_learning.task import test as test_fn
 from mia_mitigation_in_fed_learning.task import train as train_fn
 
@@ -17,7 +17,7 @@ def train(msg: Message, context: Context):
     """Train the model on local data."""
 
     # Load the model and initialize it with the received weights
-    model = Net()
+    model = WideResNet(depth=34, widen_factor=10, num_classes=100, drop_rate=0.0)
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -52,7 +52,7 @@ def evaluate(msg: Message, context: Context):
     """Evaluate the model on local data."""
 
     # Load the model and initialize it with the received weights
-    model = Net()
+    model = WideResNet(depth=34, widen_factor=10, num_classes=100, drop_rate=0.0)
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)

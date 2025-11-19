@@ -5,7 +5,7 @@ from flwr.app import ArrayRecord, ConfigRecord, Context
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg
 
-from mia_mitigation_in_fed_learning.task import Net
+from mia_mitigation_in_fed_learning.task import WideResNet
 
 # Create ServerApp
 app = ServerApp()
@@ -21,7 +21,7 @@ def main(grid: Grid, context: Context) -> None:
     lr: float = context.run_config["lr"]
 
     # Load global model
-    global_model = Net()
+    global_model = WideResNet(depth=34, widen_factor=10, num_classes=100, drop_rate=0.0)
     arrays = ArrayRecord(global_model.state_dict())
 
     # Initialize FedAvg strategy
