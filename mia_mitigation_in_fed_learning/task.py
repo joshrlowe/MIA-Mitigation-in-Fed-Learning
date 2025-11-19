@@ -9,7 +9,14 @@ import torch.nn.functional as F
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import IidPartitioner
 from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, Normalize, ToTensor, RandomCrop, RandomHorizontalFlip, RandomErasing
+from torchvision.transforms import (
+    Compose,
+    Normalize,
+    ToTensor,
+    RandomCrop,
+    RandomHorizontalFlip,
+    RandomErasing,
+)
 
 
 class BasicBlock(nn.Module):
@@ -76,7 +83,7 @@ class WideResNet(nn.Module):
         super(WideResNet, self).__init__()
         nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
         assert (depth - 4) % 6 == 0
-        n = (depth - 4) / 6
+        n = (depth - 4) // 6
         self.conv1 = nn.Conv2d(
             3, nChannels[0], kernel_size=3, stride=1, padding=1, bias=False
         )
@@ -120,18 +127,22 @@ fds = None  # Cache FederatedDataset
 cifar100_mean = (0.5071, 0.4867, 0.4409)
 cifar100_std = (0.2675, 0.2565, 0.2761)
 
-train_transforms = Compose([
-    RandomCrop(32, padding=4),
-    RandomHorizontalFlip(),
-    ToTensor(),
-    Normalize(cifar100_mean, cifar100_std),
-    RandomErasing(p=0.5)
-])
+train_transforms = Compose(
+    [
+        RandomCrop(32, padding=4),
+        RandomHorizontalFlip(),
+        ToTensor(),
+        Normalize(cifar100_mean, cifar100_std),
+        RandomErasing(p=0.5),
+    ]
+)
 
-test_transforms = Compose([
-    ToTensor(),
-    Normalize(cifar100_mean, cifar100_std),
-])
+test_transforms = Compose(
+    [
+        ToTensor(),
+        Normalize(cifar100_mean, cifar100_std),
+    ]
+)
 
 
 def apply_transforms_train(batch):
@@ -141,6 +152,7 @@ def apply_transforms_train(batch):
         batch["label"] = batch["fine_label"]
 
     return batch
+
 
 def apply_transforms_test(batch):
     """Apply transforms to the partition from FederatedDataset for testign."""
@@ -168,53 +180,63 @@ def load_data(partition_id: int, num_partitions: int):
     test_split = partition_train_test["test"].with_transform(apply_transforms_test)
     cuda = torch.cuda.is_available()
     trainloader = DataLoader(
-        train_split, 
-        batch_size=128, 
+        train_split,
+        batch_size=128,
         shuffle=True,
         num_workers=4 if cuda else 0,
         pin_memory=cuda,
-        persistent_workers=cuda
+        persistent_workers=cuda,
     )
     testloader = DataLoader(
-        test_split, 
+        test_split,
         batch_size=128,
         num_workers=4 if cuda else 0,
         pin_memory=cuda,
-        persistent_workers=cuda
-        )
+        persistent_workers=cuda,
+    )
     return trainloader, testloader
 
 
 def train(net, trainloader, epochs, lr, device):
     """Train the model on the training set."""
-    print(f"Using GPU: {torch.cuda.get_device_name(device)}" if torch.cuda.is_available() else "Using CPU")
+    print(
+        f"Using GPU: {torch.cuda.get_device_name(device)}"
+        if torch.cuda.is_available()
+        else "Using CPU"
+    )
     net.to(device)
-    criterion = torch.nn.CrossEntropyLoss().to(device)
-    optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.1).to(device)
+    optimizer = torch.optim.SGD(
+        net.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     net.train()
     running_loss = 0.0
     for _ in range(epochs):
         for batch in trainloader:
-            images = batch["img"].to(device)
-            labels = batch["label"].to(device)
+            images = batch["img"].to(device, non_blocking=True)
+            labels = batch["label"].to(device, non_blocking=True)
             optimizer.zero_grad()
             loss = criterion(net(images), labels)
             loss.backward()
+            nn.utils.clip_grad_norm_(net.parameters(), 1.0)
             optimizer.step()
             running_loss += loss.item()
-    avg_trainloss = running_loss / len(trainloader)
+        scheduler.step()
+    avg_trainloss = running_loss / (epochs * len(trainloader))
     return avg_trainloss
 
 
 def test(net, testloader, device):
     """Validate the model on the test set."""
     net.to(device)
+    net.eval()
     criterion = torch.nn.CrossEntropyLoss()
     correct, loss = 0, 0.0
     with torch.no_grad():
         for batch in testloader:
-            images = batch["img"].to(device)
-            labels = batch["label"].to(device)
+            images = batch["img"].to(device, non_blocking=True)
+            labels = batch["label"].to(device, non_blocking=True)
             outputs = net(images)
             loss += criterion(outputs, labels).item()
             correct += (torch.max(outputs.data, 1)[1] == labels).sum().item()
