@@ -12,20 +12,50 @@ from mia_mitigation_in_fed_learning.task import train as train_fn
 app = ClientApp()
 
 
+def create_model(context: Context):
+    return WideResNet(
+        depth=context.run_config["model-depth"],
+        widen_factor=context.run_config["model-widen-factor"],
+        num_classes=context.run_config["model-num-classes"],
+        drop_rate=context.run_config["drop-rate"],
+    )
+
+
+def get_device():
+    return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
+def load_data_client(context: Context):
+    return load_data(
+        partition_id=context.node_config["partition-id"],
+        num_partitions=context.node_config["num-partitions"],
+        test_size=context.run_config["test-split-size"],
+        seed=context.run_config["data-partition-seed"],
+        batch_size=context.run_config["batch-size"],
+        num_workers=context.run_config["num-workers"],
+        random_crop_padding=context.run_config["random-crop-padding"],
+        random_erasing_probability=context.run_config["random-erasing-probability"],
+        cifar100_mean=tuple(
+            float(x) for x in context.run_config["cifar-100-mean"].split(",")
+        ),
+        cifar100_std=tuple(
+            float(x) for x in context.run_config["cifar-100-std"].split(",")
+        ),
+    )
+
+
 @app.train()
 def train(msg: Message, context: Context):
     """Train the model on local data."""
 
     # Load the model and initialize it with the received weights
-    model = WideResNet(depth=34, widen_factor=10, num_classes=100, drop_rate=0.0)
+    model = create_model(context)
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     model.to(device)
 
     # Load the data
-    partition_id = context.node_config["partition-id"]
-    num_partitions = context.node_config["num-partitions"]
-    trainloader, _ = load_data(partition_id, num_partitions)
+    trainloader, _ = load_data_client(context)
 
     # Call the training function
     train_loss = train_fn(
@@ -34,6 +64,10 @@ def train(msg: Message, context: Context):
         context.run_config["local-epochs"],
         msg.content["config"]["lr"],
         device,
+        label_smoothing=context.run_config["label-smoothing"],
+        momentum=context.run_config["momentum"],
+        weight_decay=context.run_config["weight-decay"],
+        max_grad_norm=context.run_config["max-grad-norm"],
     )
 
     # Construct and return reply Message
@@ -52,15 +86,13 @@ def evaluate(msg: Message, context: Context):
     """Evaluate the model on local data."""
 
     # Load the model and initialize it with the received weights
-    model = WideResNet(depth=34, widen_factor=10, num_classes=100, drop_rate=0.0)
+    model = create_model(context)
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     model.to(device)
 
     # Load the data
-    partition_id = context.node_config["partition-id"]
-    num_partitions = context.node_config["num-partitions"]
-    _, valloader = load_data(partition_id, num_partitions)
+    _, valloader = load_data_client(context)
 
     # Call the evaluation function
     eval_loss, eval_acc = test_fn(

@@ -21,7 +21,12 @@ def main(grid: Grid, context: Context) -> None:
     lr: float = context.run_config["lr"]
 
     # Load global model
-    global_model = WideResNet(depth=34, widen_factor=10, num_classes=100, drop_rate=0.0)
+    global_model = WideResNet(
+        depth=context.run_config["model-depth"],
+        widen_factor=context.run_config["model-widen-factor"],
+        num_classes=context.run_config["model-num-classes"],
+        drop_rate=context.run_config["drop-rate"],
+    )
     arrays = ArrayRecord(global_model.state_dict())
 
     # Initialize FedAvg strategy

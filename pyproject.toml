@@ -32,13 +32,38 @@ publisher = "joshrlowe"
 serverapp = "mia_mitigation_in_fed_learning.server_app:app"
 clientapp = "mia_mitigation_in_fed_learning.client_app:app"
 
-# Custom config values accessible via `context.run_config`
 [tool.flwr.app.config]
 num-server-rounds = 400
 fraction-train = 0.75
 local-epochs = 2
 lr = 0.05
 initial-weights-path = "final_model.pt"
+
+# Model architecture
+model-depth = 34
+model-widen-factor = 10
+model-num-classes = 100
+drop-rate = 0.0
+
+# Data augmentation
+random-crop-padding = 4
+random-erasing-probability = 0.5
+
+# Data loading
+batch-size = 128
+num-workers = 4
+test-split-size = 0.2
+data-partition-seed = 42
+
+# Training
+label-smoothing = 0.1
+momentum = 0.9
+weight-decay = 0.0001
+max-grad-norm = 1.0
+
+# CIFAR-100 statistics
+cifar-100-mean = "0.5071,0.4867,0.4409"
+cifar-100-std = "0.2675,0.2565,0.2761"
 
 # Default federation to use when running the app
 [tool.flwr.federations]

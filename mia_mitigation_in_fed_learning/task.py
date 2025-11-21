@@ -124,49 +124,54 @@ class WideResNet(nn.Module):
 
 fds = None  # Cache FederatedDataset
 
-cifar100_mean = (0.5071, 0.4867, 0.4409)
-cifar100_std = (0.2675, 0.2565, 0.2761)
 
-train_transforms = Compose(
-    [
-        RandomCrop(32, padding=4),
-        RandomHorizontalFlip(),
-        ToTensor(),
-        Normalize(cifar100_mean, cifar100_std),
-        RandomErasing(p=0.5),
-    ]
-)
-
-test_transforms = Compose(
-    [
-        ToTensor(),
-        Normalize(cifar100_mean, cifar100_std),
-    ]
-)
-
-
-def apply_transforms_train(batch):
-    """Apply transforms to the partition from FederatedDataset for training."""
-    batch["img"] = [train_transforms(img) for img in batch["img"]]
-    if "fine_label" in batch:
-        batch["label"] = batch["fine_label"]
-
-    return batch
-
-
-def apply_transforms_test(batch):
-    """Apply transforms to the partition from FederatedDataset for testign."""
-    batch["img"] = [test_transforms(img) for img in batch["img"]]
-
-    if "fine_label" in batch:
-        batch["label"] = batch["fine_label"]
-
-    return batch
-
-
-def load_data(partition_id: int, num_partitions: int):
+def load_data(
+    partition_id: int,
+    num_partitions: int,
+    test_size: float = 0.2,
+    seed: int = 42,
+    batch_size: int = 128,
+    num_workers: int = 4,
+    random_crop_padding: int = 4,
+    random_erasing_probability: float = 0.5,
+    cifar100_mean: tuple = (0.5071, 0.4867, 0.4409),
+    cifar100_std: tuple = (0.2675, 0.2565, 0.2761),
+):
     """Load partition CIFAR100 data."""
     # Only initialize `FederatedDataset` once
+
+    def apply_transforms_train(batch):
+        """Apply transforms to the partition from FederatedDataset for training."""
+        train_transforms = Compose(
+            [
+                RandomCrop(32, padding=random_crop_padding),
+                RandomHorizontalFlip(),
+                ToTensor(),
+                Normalize(cifar100_mean, cifar100_std),
+                RandomErasing(p=random_erasing_probability),
+            ]
+        )
+        batch["img"] = [train_transforms(img) for img in batch["img"]]
+        if "fine_label" in batch:
+            batch["label"] = batch["fine_label"]
+
+        return batch
+
+    def apply_transforms_test(batch):
+        """Apply transforms to the partition from FederatedDataset for testign."""
+        test_transforms = Compose(
+            [
+                ToTensor(),
+                Normalize(cifar100_mean, cifar100_std),
+            ]
+        )
+        batch["img"] = [test_transforms(img) for img in batch["img"]]
+
+        if "fine_label" in batch:
+            batch["label"] = batch["fine_label"]
+
+        return batch
+
     global fds
     if fds is None:
         partitioner = IidPartitioner(num_partitions=num_partitions)
@@ -175,29 +180,40 @@ def load_data(partition_id: int, num_partitions: int):
             partitioners={"train": partitioner},
         )
     partition = fds.load_partition(partition_id)
-    partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
+    partition_train_test = partition.train_test_split(test_size=test_size, seed=seed)
+
     train_split = partition_train_test["train"].with_transform(apply_transforms_train)
     test_split = partition_train_test["test"].with_transform(apply_transforms_test)
     cuda = torch.cuda.is_available()
     trainloader = DataLoader(
         train_split,
-        batch_size=128,
+        batch_size=batch_size,
         shuffle=True,
-        num_workers=4 if cuda else 0,
+        num_workers=num_workers if cuda else 0,
         pin_memory=cuda,
         persistent_workers=cuda,
     )
     testloader = DataLoader(
         test_split,
-        batch_size=128,
-        num_workers=4 if cuda else 0,
+        batch_size=batch_size,
+        num_workers=num_workers if cuda else 0,
         pin_memory=cuda,
         persistent_workers=cuda,
     )
     return trainloader, testloader
 
 
-def train(net, trainloader, epochs, lr, device):
+def train(
+    net,
+    trainloader,
+    epochs,
+    lr,
+    device,
+    label_smoothing: float = 0.1,
+    momentum: float = 0.9,
+    weight_decay: float = 1e-4,
+    max_grad_norm: float = 1.0,
+):
     """Train the model on the training set."""
     print(
         f"Using GPU: {torch.cuda.get_device_name(device)}"
@@ -205,9 +221,9 @@ def train(net, trainloader, epochs, lr, device):
         else "Using CPU"
     )
     net.to(device)
-    criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.1).to(device)
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=label_smoothing).to(device)
     optimizer = torch.optim.SGD(
-        net.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4
+        net.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     net.train()
@@ -219,7 +235,7 @@ def train(net, trainloader, epochs, lr, device):
             optimizer.zero_grad()
             loss = criterion(net(images), labels)
             loss.backward()
-            nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+            nn.utils.clip_grad_norm_(net.parameters(), max_grad_norm)
             optimizer.step()
             running_loss += loss.item()
         scheduler.step()
