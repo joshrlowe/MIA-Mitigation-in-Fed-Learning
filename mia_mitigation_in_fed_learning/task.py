@@ -128,6 +128,8 @@ class WideResNet(nn.Module):
         return self.fc(out)
 
 
+fds = None
+
 def load_data(
     partition_id: int,
     num_partitions: int,
