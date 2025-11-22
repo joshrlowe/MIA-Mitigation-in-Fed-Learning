@@ -10,3 +10,4 @@ matplotlib>=3.10.7
 seaborn>=0.13.2
 
 tqdm>=4.67.1
+opacus>=1.5.0

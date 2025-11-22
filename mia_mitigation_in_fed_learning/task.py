@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import IidPartitioner
+from opacus import PrivacyEngine
 from torch.utils.data import DataLoader
 from torchvision.transforms import (
     Compose,
@@ -20,15 +21,16 @@ from torchvision.transforms import (
 
 
 class BasicBlock(nn.Module):
-    def __init__(self, in_planes, out_planes, stride, drop_rate=0.0):
+    def __init__(self, in_planes, out_planes, stride, drop_rate=0.0, dp_on=False):
         super(BasicBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.relu1 = nn.ReLU(inplace=True)
+
+        self.bn1 = nn.GroupNorm(num_groups=1, num_channels=in_planes) if dp_on else nn.BatchNorm2d(in_planes)
+        self.relu1 = nn.ReLU(inplace=not dp_on)
         self.conv1 = nn.Conv2d(
             in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
         )
-        self.bn2 = nn.BatchNorm2d(out_planes)
-        self.relu2 = nn.ReLU(inplace=True)
+        self.bn2 = nn.GroupNorm(num_groups=1, num_channels=out_planes) if dp_on else nn.BatchNorm2d(out_planes)
+        self.relu2 = nn.ReLU(inplace=not dp_on)
         self.conv2 = nn.Conv2d(
             out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False
         )
@@ -55,13 +57,13 @@ class BasicBlock(nn.Module):
 
 
 class NetworkBlock(nn.Module):
-    def __init__(self, nb_layers, in_planes, out_planes, block, stride, drop_rate=0.0):
+    def __init__(self, nb_layers, in_planes, out_planes, block, stride, drop_rate=0.0, dp_on=False):
         super(NetworkBlock, self).__init__()
         self.layer = self._make_layer(
-            block, in_planes, out_planes, nb_layers, stride, drop_rate
+            block, in_planes, out_planes, nb_layers, stride, drop_rate, dp_on
         )
 
-    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride, drop_rate):
+    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride, drop_rate, dp_on):
         layers = []
         for i in range(int(nb_layers)):
             layers.append(
@@ -70,6 +72,7 @@ class NetworkBlock(nn.Module):
                     out_planes,
                     i == 0 and stride or 1,
                     drop_rate,
+                    dp_on,
                 )
             )
         return nn.Sequential(*layers)
@@ -79,7 +82,7 @@ class NetworkBlock(nn.Module):
 
 
 class WideResNet(nn.Module):
-    def __init__(self, depth, num_classes, widen_factor=1, drop_rate=0.0):
+    def __init__(self, depth, num_classes, widen_factor=1, drop_rate=0.0, dp_on=False):
         super(WideResNet, self).__init__()
         nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
         assert (depth - 4) % 6 == 0
@@ -88,23 +91,26 @@ class WideResNet(nn.Module):
             3, nChannels[0], kernel_size=3, stride=1, padding=1, bias=False
         )
         self.block1 = NetworkBlock(
-            n, nChannels[0], nChannels[1], BasicBlock, 1, drop_rate
+            n, nChannels[0], nChannels[1], BasicBlock, 1, drop_rate, dp_on
         )
         self.block2 = NetworkBlock(
-            n, nChannels[1], nChannels[2], BasicBlock, 2, drop_rate
+            n, nChannels[1], nChannels[2], BasicBlock, 2, drop_rate, dp_on
         )
         self.block3 = NetworkBlock(
-            n, nChannels[2], nChannels[3], BasicBlock, 2, drop_rate
+            n, nChannels[2], nChannels[3], BasicBlock, 2, drop_rate, dp_on
         )
-        self.bn1 = nn.BatchNorm2d(nChannels[3])
-        self.relu = nn.ReLU(inplace=True)
+        self.bn1 = nn.GroupNorm(num_groups=1, num_channels=nChannels[3]) if dp_on else nn.BatchNorm2d(nChannels[3])
+        self.relu = nn.ReLU(inplace=not dp_on)
         self.fc = nn.Linear(nChannels[3], num_classes)
         self.nChannels = nChannels[3]
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-            elif isinstance(m, nn.BatchNorm2d):
+            elif dp_on and isinstance(m, nn.GroupNorm):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif not dp_on and isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
             elif isinstance(m, nn.Linear):
@@ -122,9 +128,6 @@ class WideResNet(nn.Module):
         return self.fc(out)
 
 
-fds = None  # Cache FederatedDataset
-
-
 def load_data(
     partition_id: int,
     num_partitions: int,
@@ -137,8 +140,6 @@ def load_data(
     cifar100_mean: tuple = (0.5071, 0.4867, 0.4409),
     cifar100_std: tuple = (0.2675, 0.2565, 0.2761),
 ):
-    """Load partition CIFAR100 data."""
-    # Only initialize `FederatedDataset` once
 
     def apply_transforms_train(batch):
         """Apply transforms to the partition from FederatedDataset for training."""
@@ -213,6 +214,8 @@ def train(
     momentum: float = 0.9,
     weight_decay: float = 1e-4,
     max_grad_norm: float = 1.0,
+    dp_on: bool = False,
+    noise_multiplier: float = 0.5,
 ):
     """Train the model on the training set."""
     print(
@@ -225,6 +228,18 @@ def train(
     optimizer = torch.optim.SGD(
         net.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay
     )
+
+    if dp_on:
+        privacy_engine = PrivacyEngine()
+        net, optimizer, trainloader = privacy_engine.make_private(
+            module=net,
+            optimizer=optimizer,
+            data_loader=trainloader,
+            noise_multiplier=noise_multiplier,
+            max_grad_norm=max_grad_norm,
+        )
+
+
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     net.train()
     running_loss = 0.0
@@ -235,7 +250,8 @@ def train(
             optimizer.zero_grad()
             loss = criterion(net(images), labels)
             loss.backward()
-            nn.utils.clip_grad_norm_(net.parameters(), max_grad_norm)
+            if not dp_on:
+                nn.utils.clip_grad_norm_(net.parameters(), max_grad_norm)
             optimizer.step()
             running_loss += loss.item()
         scheduler.step()

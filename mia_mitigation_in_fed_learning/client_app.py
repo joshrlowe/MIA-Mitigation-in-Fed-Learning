@@ -18,6 +18,7 @@ def create_model(context: Context):
         widen_factor=context.run_config["model-widen-factor"],
         num_classes=context.run_config["model-num-classes"],
         drop_rate=context.run_config["drop-rate"],
+        dp_on=context.run_config["dp-on"],
     )
 
 
@@ -68,6 +69,12 @@ def train(msg: Message, context: Context):
         momentum=context.run_config["momentum"],
         weight_decay=context.run_config["weight-decay"],
         max_grad_norm=context.run_config["max-grad-norm"],
+        dp_on=context.run_config["dp-on"],
+        noise_multiplier=(
+            context.run_config["noise-multiplier"]
+            if context.run_config["dp-on"]
+            else None
+        ),
     )
 
     # Construct and return reply Message

@@ -16,3 +16,7 @@ The above Colab notebook is view only. If you want to run your own copy of this 
 2. Open your Google Drive, navigate to the saved copy, open it.
 3. If subscribed to Colab Pro, go to Runtime -> Change Runtime Type -> Select "T4 GPU". This speeds up training by using a GPU in the background.
 4. Click "Run All" to run all of the cells.
+
+## Notes
+
+**Note**: All code is and has been formatted using `black` formatter.

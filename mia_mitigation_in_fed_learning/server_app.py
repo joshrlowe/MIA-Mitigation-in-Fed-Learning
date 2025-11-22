@@ -26,6 +26,7 @@ def main(grid: Grid, context: Context) -> None:
         widen_factor=context.run_config["model-widen-factor"],
         num_classes=context.run_config["model-num-classes"],
         drop_rate=context.run_config["drop-rate"],
+        dp_on=context.run_config["dp-on"],
     )
     arrays = ArrayRecord(global_model.state_dict())
 

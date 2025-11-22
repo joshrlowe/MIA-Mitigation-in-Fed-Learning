@@ -40,8 +40,8 @@ lr = 0.05
 initial-weights-path = "final_model.pt"
 
 # Model architecture
-model-depth = 34
-model-widen-factor = 10
+model-depth = 28
+model-widen-factor = 4
 model-num-classes = 100
 drop-rate = 0.0
 
@@ -50,7 +50,7 @@ random-crop-padding = 4
 random-erasing-probability = 0.5
 
 # Data loading
-batch-size = 128
+batch-size = 32
 num-workers = 4
 test-split-size = 0.2
 data-partition-seed = 42
@@ -59,7 +59,11 @@ data-partition-seed = 42
 label-smoothing = 0.1
 momentum = 0.9
 weight-decay = 0.0001
-max-grad-norm = 1.0
+max-grad-norm = 2.0
+
+# Differential Privacy
+dp-on = false
+noise-multiplier = 0.2
 
 # CIFAR-100 statistics
 cifar-100-mean = "0.5071,0.4867,0.4409"
