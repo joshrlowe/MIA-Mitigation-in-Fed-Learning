@@ -3,6 +3,7 @@ MIA Mitigation Strategies in Federated Learning:
 A PyTorch app that utilizes Flower.
 """
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -154,10 +155,45 @@ class WideResNet(nn.Module):
 fds = None
 
 
+def equal_split(
+    dataset: FederatedDataset,
+    train_size: float,
+    val_size: float,
+    test_size: float,
+    seed: int = 42,
+):
+    """Split the dataset proportionally and with the same number of labels in each split."""
+    labels = dataset["fine_label"]
+    label_indices = {label: [] for label in labels}
+    for i, label in enumerate(labels):
+        label_indices[label].append(i)
+
+    train_indices, val_indices, test_indices = [], [], []
+    for label, indices in label_indices.items():
+        np.random.shuffle(indices)
+        train_indices.extend(indices[int(len(indices) * train_size) :])
+        val_indices.extend(
+            indices[
+                int(len(indices) * train_size) : int(
+                    len(indices) * (train_size + val_size)
+                )
+            ]
+        )
+        test_indices.extend(indices[int(len(indices) * (train_size + val_size)) :])
+
+    train_dataset = dataset.select(train_indices)
+    val_dataset = dataset.select(val_indices)
+    test_dataset = dataset.select(test_indices)
+
+    return train_dataset, val_dataset, test_dataset
+
+
 def load_data(
     partition_id: int,
     num_partitions: int,
-    test_size: float = 0.2,
+    train_size: float = 0.5,
+    val_size: float = 0.2,
+    test_size: float = 0.3,
     alpha: float = 0.5,
     seed: int = 42,
     batch_size: int = 128,
@@ -210,27 +246,39 @@ def load_data(
             partitioners={"train": partitioner},
         )
     partition = fds.load_partition(partition_id)
-    partition_train_test = partition.train_test_split(test_size=test_size, seed=seed)
 
-    train_split = partition_train_test["train"].with_transform(apply_transforms_train)
-    test_split = partition_train_test["test"].with_transform(apply_transforms_test)
+    train_dataset, val_dataset, test_dataset = equal_split(
+        partition, train_size, val_size, test_size, seed
+    )
+
+    train_dataset = train_dataset.with_transform(apply_transforms_train)
+    val_dataset = val_dataset.with_transform(apply_transforms_test)
+    test_dataset = test_dataset.with_transform(apply_transforms_test)
+
     cuda = torch.cuda.is_available()
     trainloader = DataLoader(
-        train_split,
+        train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers if cuda else 0,
         pin_memory=cuda,
         persistent_workers=cuda,
     )
-    testloader = DataLoader(
-        test_split,
+    valloader = DataLoader(
+        val_dataset,
         batch_size=batch_size,
         num_workers=num_workers if cuda else 0,
         pin_memory=cuda,
         persistent_workers=cuda,
     )
-    return trainloader, testloader
+    testloader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        num_workers=num_workers if cuda else 0,
+        pin_memory=cuda,
+        persistent_workers=cuda,
+    )
+    return trainloader, valloader, testloader
 
 
 def train(

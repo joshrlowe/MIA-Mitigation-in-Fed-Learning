@@ -52,7 +52,9 @@ random-erasing-probability = 0.5
 # Data loading
 batch-size = 32
 num-workers = 4
-test-split-size = 0.2
+train-split-size = 0.5
+val-split-size = 0.2
+test-split-size = 0.3
 data-partition-seed = 42
 
 # Training
@@ -68,6 +70,9 @@ noise-multiplier = 0.2
 # CIFAR-100 statistics
 cifar-100-mean = "0.5071,0.4867,0.4409"
 cifar-100-std = "0.2675,0.2565,0.2761"
+
+# Dirichlet Partitioning
+alpha = 0.5
 
 # Default federation to use when running the app
 [tool.flwr.federations]

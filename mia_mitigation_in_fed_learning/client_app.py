@@ -30,7 +30,10 @@ def load_data_client(context: Context):
     return load_data(
         partition_id=context.node_config["partition-id"],
         num_partitions=context.node_config["num-partitions"],
+        train_size=context.run_config["train-split-size"],
+        val_size=context.run_config["val-split-size"],
         test_size=context.run_config["test-split-size"],
+        alpha=context.run_config["alpha"],
         seed=context.run_config["data-partition-seed"],
         batch_size=context.run_config["batch-size"],
         num_workers=context.run_config["num-workers"],
@@ -56,7 +59,7 @@ def train(msg: Message, context: Context):
     model.to(device)
 
     # Load the data
-    trainloader, _ = load_data_client(context)
+    trainloader, _, _ = load_data_client(context)
 
     # Call the training function
     train_loss = train_fn(
@@ -99,7 +102,7 @@ def evaluate(msg: Message, context: Context):
     model.to(device)
 
     # Load the data
-    _, valloader = load_data_client(context)
+    _, valloader, _ = load_data_client(context)
 
     # Call the evaluation function
     eval_loss, eval_acc = test_fn(
