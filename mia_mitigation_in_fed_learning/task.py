@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from flwr_datasets import FederatedDataset
-from flwr_datasets.partitioner import IidPartitioner
+from flwr_datasets.partitioner import DirichletPartitioner
 from opacus import PrivacyEngine
 from torch.utils.data import DataLoader
 from torchvision.transforms import (
@@ -24,12 +24,20 @@ class BasicBlock(nn.Module):
     def __init__(self, in_planes, out_planes, stride, drop_rate=0.0, dp_on=False):
         super(BasicBlock, self).__init__()
 
-        self.bn1 = nn.GroupNorm(num_groups=1, num_channels=in_planes) if dp_on else nn.BatchNorm2d(in_planes)
+        self.bn1 = (
+            nn.GroupNorm(num_groups=1, num_channels=in_planes)
+            if dp_on
+            else nn.BatchNorm2d(in_planes)
+        )
         self.relu1 = nn.ReLU(inplace=not dp_on)
         self.conv1 = nn.Conv2d(
             in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
         )
-        self.bn2 = nn.GroupNorm(num_groups=1, num_channels=out_planes) if dp_on else nn.BatchNorm2d(out_planes)
+        self.bn2 = (
+            nn.GroupNorm(num_groups=1, num_channels=out_planes)
+            if dp_on
+            else nn.BatchNorm2d(out_planes)
+        )
         self.relu2 = nn.ReLU(inplace=not dp_on)
         self.conv2 = nn.Conv2d(
             out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False
@@ -57,13 +65,24 @@ class BasicBlock(nn.Module):
 
 
 class NetworkBlock(nn.Module):
-    def __init__(self, nb_layers, in_planes, out_planes, block, stride, drop_rate=0.0, dp_on=False):
+    def __init__(
+        self,
+        nb_layers,
+        in_planes,
+        out_planes,
+        block,
+        stride,
+        drop_rate=0.0,
+        dp_on=False,
+    ):
         super(NetworkBlock, self).__init__()
         self.layer = self._make_layer(
             block, in_planes, out_planes, nb_layers, stride, drop_rate, dp_on
         )
 
-    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride, drop_rate, dp_on):
+    def _make_layer(
+        self, block, in_planes, out_planes, nb_layers, stride, drop_rate, dp_on
+    ):
         layers = []
         for i in range(int(nb_layers)):
             layers.append(
@@ -99,7 +118,11 @@ class WideResNet(nn.Module):
         self.block3 = NetworkBlock(
             n, nChannels[2], nChannels[3], BasicBlock, 2, drop_rate, dp_on
         )
-        self.bn1 = nn.GroupNorm(num_groups=1, num_channels=nChannels[3]) if dp_on else nn.BatchNorm2d(nChannels[3])
+        self.bn1 = (
+            nn.GroupNorm(num_groups=1, num_channels=nChannels[3])
+            if dp_on
+            else nn.BatchNorm2d(nChannels[3])
+        )
         self.relu = nn.ReLU(inplace=not dp_on)
         self.fc = nn.Linear(nChannels[3], num_classes)
         self.nChannels = nChannels[3]
@@ -130,10 +153,12 @@ class WideResNet(nn.Module):
 
 fds = None
 
+
 def load_data(
     partition_id: int,
     num_partitions: int,
     test_size: float = 0.2,
+    alpha: float = 0.5,
     seed: int = 42,
     batch_size: int = 128,
     num_workers: int = 4,
@@ -177,7 +202,9 @@ def load_data(
 
     global fds
     if fds is None:
-        partitioner = IidPartitioner(num_partitions=num_partitions)
+        partitioner = DirichletPartitioner(
+            num_partitions=num_partitions, alpha=alpha, partition_by="fine_label"
+        )
         fds = FederatedDataset(
             dataset="uoft-cs/cifar100",
             partitioners={"train": partitioner},
@@ -240,7 +267,6 @@ def train(
             noise_multiplier=noise_multiplier,
             max_grad_norm=max_grad_norm,
         )
-
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     net.train()
