@@ -169,7 +169,7 @@ def equal_split(
     train_indices, val_indices, test_indices = [], [], []
     for label, indices in label_indices.items():
         np.random.shuffle(indices)
-        train_indices.extend(indices[int(len(indices) * train_size) :])
+        train_indices.extend(indices[:int(len(indices) * train_size)])
         val_indices.extend(
             indices[
                 int(len(indices) * train_size) : int(
