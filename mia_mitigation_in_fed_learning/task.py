@@ -159,8 +159,6 @@ def equal_split(
     dataset: FederatedDataset,
     train_size: float,
     val_size: float,
-    test_size: float,
-    seed: int = 42,
 ):
     """Split the dataset proportionally and with the same number of labels in each split."""
     labels = dataset["fine_label"]
