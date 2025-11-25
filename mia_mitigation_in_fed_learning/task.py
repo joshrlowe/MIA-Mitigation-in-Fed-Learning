@@ -246,7 +246,7 @@ def load_data(
     partition = fds.load_partition(partition_id)
 
     train_dataset, val_dataset, test_dataset = equal_split(
-        partition, train_size, val_size, test_size, seed
+        partition, train_size, val_size
     )
 
     train_dataset = train_dataset.with_transform(apply_transforms_train)
