@@ -78,6 +78,8 @@ def train(msg: Message, context: Context):
             if context.run_config["dp-on"]
             else None
         ),
+        seed=context.run_config["data-partition-seed"]
+        + context.node_config["partition-id"],
     )
 
     # Construct and return reply Message

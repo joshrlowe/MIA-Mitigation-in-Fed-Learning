@@ -159,8 +159,10 @@ def equal_split(
     dataset: FederatedDataset,
     train_size: float,
     val_size: float,
+    seed: int = 42,
 ):
     """Split the dataset proportionally and with the same number of labels in each split."""
+    np.random.seed(seed)
     labels = dataset["fine_label"]
     label_indices = {label: [] for label in labels}
     for i, label in enumerate(labels):
@@ -169,7 +171,7 @@ def equal_split(
     train_indices, val_indices, test_indices = [], [], []
     for label, indices in label_indices.items():
         np.random.shuffle(indices)
-        train_indices.extend(indices[:int(len(indices) * train_size)])
+        train_indices.extend(indices[: int(len(indices) * train_size)])
         val_indices.extend(
             indices[
                 int(len(indices) * train_size) : int(
@@ -201,6 +203,8 @@ def load_data(
     cifar100_mean: tuple = (0.5071, 0.4867, 0.4409),
     cifar100_std: tuple = (0.2675, 0.2565, 0.2761),
 ):
+    np.random.seed(seed + partition_id)
+    torch.manual_seed(seed + partition_id)
 
     def apply_transforms_train(batch):
         """Apply transforms to the partition from FederatedDataset for training."""
@@ -236,6 +240,8 @@ def load_data(
 
     global fds
     if fds is None:
+        np.random.seed(seed)
+        torch.manual_seed(seed)
         partitioner = DirichletPartitioner(
             num_partitions=num_partitions, alpha=alpha, partition_by="fine_label"
         )
@@ -246,7 +252,7 @@ def load_data(
     partition = fds.load_partition(partition_id)
 
     train_dataset, val_dataset, test_dataset = equal_split(
-        partition, train_size, val_size
+        partition, train_size, val_size, seed + partition_id
     )
 
     train_dataset = train_dataset.with_transform(apply_transforms_train)
@@ -291,8 +297,12 @@ def train(
     max_grad_norm: float = 1.0,
     dp_on: bool = False,
     noise_multiplier: float = 0.5,
+    seed: int = 42,
 ):
     """Train the model on the training set."""
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
     print(
         f"Using GPU: {torch.cuda.get_device_name(device)}"
         if torch.cuda.is_available()

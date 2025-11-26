@@ -1,5 +1,8 @@
 """MIA-Mitigation-in-Fed-Learning: A Flower / PyTorch app."""
 
+import random
+
+import numpy as np
 import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context
 from flwr.serverapp import Grid, ServerApp
@@ -19,6 +22,9 @@ def main(grid: Grid, context: Context) -> None:
     fraction_train: float = context.run_config["fraction-train"]
     num_rounds: int = context.run_config["num-server-rounds"]
     lr: float = context.run_config["lr"]
+
+    torch.manual_seed(context.run_config["data-partition-seed"])
+    np.random.seed(context.run_config["data-partition-seed"])
 
     # Load global model
     global_model = WideResNet(

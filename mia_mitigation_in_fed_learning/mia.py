@@ -18,21 +18,23 @@ def load_model(
     drop_rate: float,
     dp_on: bool,
     model_path: str,
-):
+):  
     model = WideResNet(model_depth, num_classes, widen_factor, drop_rate, dp_on)
     model.load_state_dict(torch.load(model_path))
     model.eval()
     return model
 
 
-def prepare_data(num_partitions: int):
+def prepare_data(num_partitions: int, seed: int = 42):
     # Load in data, which is split 50:20:30 already and mark 50% as members and 50% as non-members
     member_images, member_labels = [], []
     non_member_images, non_member_labels = [], []
 
     for i in range(num_partitions):
         trainloader, valloader, testloader = load_data(
-            partition_id=i, num_partitions=num_partitions
+            partition_id=i, 
+            num_partitions=num_partitions,
+            seed=seed
         )
         for batch in trainloader:
             member_images.extend(batch["img"].cpu().numpy())
@@ -112,6 +114,7 @@ if __name__ == "__main__":
     parser.add_argument("--dp-on", type=bool, default=False)
     parser.add_argument("--model-path", type=str, default="final_model.pt")
     parser.add_argument("--num-partitions", type=int, default=10)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
     print("Loading Target Model")
@@ -126,7 +129,8 @@ if __name__ == "__main__":
 
     print("Preparing Data for MIA")
     member_x, member_y, non_member_x, non_member_y = prepare_data(
-        num_partitions=args.num_partitions
+        num_partitions=args.num_partitions,
+        seed=args.seed
     )
 
     print("Wrapping model for ART MIA")
